@@ -1,7 +1,0 @@
----
-- name: Встановлення Kubernetes
-  hosts: all
-  become: yes
-
-  roles:
-    - role: ansible-kubernetes
