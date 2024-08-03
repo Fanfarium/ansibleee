@@ -1,14 +1,14 @@
 ---
-- name: Встановлення Docker
+- name: Download Docker
   hosts: all
   become: yes
 
   tasks:
-    - name: Оновлення списку пакетів
+    - name: Packets
       apt:
         update_cache: yes
 
-    - name: Встановлення залежностей для Docker
+    - name: Dependencies for Docker
       apt:
         name: "{{ item }}"
         state: present
@@ -18,22 +18,22 @@
         - curl
         - software-properties-common
 
-    - name: Додавання GPG ключа Docker
+    - name: Add GPG Key Docker
       apt_key:
         url: https://download.docker.com/linux/ubuntu/gpg
         state: present
 
-    - name: Додавання репозиторію Docker
+    - name: Add Repository Docker
       apt_repository:
         repo: deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable
         state: present
 
-    - name: Встановлення Docker
+    - name: Install Docker
       apt:
         name: docker-ce
         state: present
 
-    - name: Запуск служби Docker
+    - name: Start service Docker
       service:
         name: docker
         state: started
