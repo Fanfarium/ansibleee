@@ -1,5 +1,5 @@
 ---
-- name: Встановлення Kubernetes
+- name: Install Kubernetes
   hosts: all
   become: yes
 
