@@ -1,7 +1,32 @@
 ---
-- name: Install Kubernetes
+- name: Install and Configure Kubernetes
   hosts: all
   become: yes
 
   roles:
     - role: ansible-kubernetes
+
+- name: Initialize Kubernetes Cluster
+  hosts: masters
+  become: yes
+
+  tasks:
+    - name: Initialize cluster
+      command: kubeadm init --pod-network-cidr=10.244.0.0/16
+      args:
+        creates: /etc/kubernetes/admin.conf
+
+    - name: Copy config file for user
+      copy:
+        src: /etc/kubernetes/admin.conf
+        dest: /home/{{ ansible_user }}/.kube/config
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+
+- name: Deploy Application on Kubernetes
+  hosts: masters
+  become: yes
+
+  tasks:
+    - name: Apply YAML file
+      command: kubectl apply -f /path/to/myapp.yaml
