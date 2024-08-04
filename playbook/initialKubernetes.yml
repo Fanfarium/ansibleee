@@ -1,15 +1,15 @@
 ---
-- name: Ініціалізація Kubernetes кластеру
+- name: Initial Kubernetes cluster
   hosts: masters
   become: yes
 
   tasks:
-    - name: Ініціалізація кластеру
+    - name: Initial cluster
       command: kubeadm init --pod-network-cidr=10.244.0.0/16
       args:
         creates: /etc/kubernetes/admin.conf
 
-    - name: Скопіювати конфігураційний файл для користувача
+    - name: Copy config file for user
       copy:
         src: /etc/kubernetes/admin.conf
         dest: /home/{{ ansible_user }}/.kube/config
