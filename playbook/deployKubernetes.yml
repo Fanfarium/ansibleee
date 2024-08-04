@@ -1,8 +1,0 @@
----
-- name: Application deployment on Kubernetes
-  hosts: masters
-  become: yes
-
-  tasks:
-    - name: Apply YAML file
-      command: kubectl apply -f /path/to/myapp.yaml
