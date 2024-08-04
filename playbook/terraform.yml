@@ -1,0 +1,63 @@
+---
+- name: Install and Deploy Terraform
+  hosts: all
+  become: yes
+  vars:
+    terraform_version: "1.0.11"
+    terraform_url: "https://releases.hashicorp.com/terraform/{{ terraform_version }}/terraform_{{ terraform_version }}_linux_amd64.zip"
+    terraform_dest: "/usr/local/bin/terraform"
+    terraform_config_dir: "/etc/terraform"
+    terraform_config_file: "main.tf"
+
+  tasks:
+    - name: Ensure unzip is installed
+      apt:
+        name: unzip
+        state: present
+      when: ansible_os_family == "Debian"
+
+    - name: Ensure unzip is installed
+      yum:
+        name: unzip
+        state: present
+      when: ansible_os_family == "RedHat"
+
+    - name: Download Terraform
+      get_url:
+        url: "{{ terraform_url }}"
+        dest: "/tmp/terraform.zip"
+        mode: '0755'
+
+    - name: Unzip Terraform
+      unarchive:
+        src: "/tmp/terraform.zip"
+        dest: "/tmp"
+        remote_src: yes
+
+    - name: Move Terraform to destination
+      copy:
+        src: "/tmp/terraform"
+        dest: "{{ terraform_dest }}"
+        mode: '0755'
+
+    - name: Create Terraform configuration directory
+      file:
+        path: "{{ terraform_config_dir }}"
+        state: directory
+        mode: '0755'
+
+    - name: Copy Terraform configuration file
+      copy:
+        src: "{{ terraform_config_file }}"
+        dest: "{{ terraform_config_dir }}/{{ terraform_config_file }}"
+        mode: '0644'
+
+    - name: Initialize Terraform
+      command: "{{ terraform_dest }} init"
+      args:
+        chdir: "{{ terraform_config_dir }}"
+
+    - name: Apply Terraform configuration
+      command: "{{ terraform_dest }} apply -auto-approve"
+      args:
+        chdir: "{{ terraform_config_dir }}"
