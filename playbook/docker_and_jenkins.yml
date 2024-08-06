@@ -1,6 +1,6 @@
 ---
 - name: Install Docker and Jenkins in a Docker container
-  hosts: localhost
+  hosts: webservers
   become: yes
 
   tasks:
@@ -17,6 +17,26 @@
         - containerd
         - runc
 
+    - name: Add Docker GPG key
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+
+    - name: Add Docker repository
+      apt_repository:
+        repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_lsb.codename }} stable"
+        state: present
+
+    - name: Add Jenkins GPG key
+      apt_key:
+        url: https://pkg.jenkins.io/debian-stable/jenkins.io.key
+        state: present
+
+    - name: Add Jenkins repository
+      apt_repository:
+        repo: "deb [arch=amd64] https://pkg.jenkins.io/debian-stable binary/"
+        state: present
+
     - name: Update apt cache
       apt:
         update_cache: yes
@@ -26,31 +46,9 @@
         name:
           - ca-certificates
           - curl
+          - gnupg
+          - lsb-release
         state: present
-
-    - name: Create directory for Docker GPG key
-      file:
-        path: /etc/apt/keyrings
-        state: directory
-        mode: '0755'
-
-    - name: Download Docker's official GPG key
-      get_url:
-        url: https://download.docker.com/linux/ubuntu/gpg
-        dest: /etc/apt/keyrings/docker.asc
-        mode: '0644'
-
-    - name: Add Docker repository to Apt sources
-      lineinfile:
-        path: /etc/apt/sources.list.d/docker.list
-        line: |
-          deb [arch={{ ansible_architecture }} signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable
-        create: yes
-        mode: '0644'
-
-    - name: Update apt cache again
-      apt:
-        update_cache: yes
 
     - name: Install Docker packages
       apt:
@@ -68,32 +66,60 @@
         groups: docker
         append: yes
 
-    - name: Start Jenkins container
+    - name: Ensure Jenkins home directory exists
+      file:
+        path: /srv/jenkins_home
+        state: directory
+        mode: '0755'
+
+    - name: Set correct ownership for Jenkins home directory
+      file:
+        path: /srv/jenkins_home
+        owner: 1000
+        group: 1000
+        recurse: yes
+
+    - name: Stop and remove existing Jenkins container
       docker_container:
         name: jenkins
-        image: jenkins/jenkins:lts
+        state: absent
+
+    - name: Pull Jenkins image with lts-jdk17 tag
+      docker_image:
+        name: jenkins/jenkins
+        tag: lts-jdk17
+        source: pull
+
+    - name: Start Jenkins container with lts-jdk17 tag
+      docker_container:
+        name: jenkins
+        image: jenkins/jenkins:lts-jdk17
         state: started
-        restart_policy: always
+        restart_policy: on-failure
         ports:
           - "8080:8080"
           - "50000:50000"
         volumes:
           - /srv/jenkins_home:/var/jenkins_home
 
-    - name: Check if Jenkins is running
-      uri:
-        url: "http://localhost:8080"
-        method: GET
-        status_code: 200
-      register: jenkins_status
-      retries: 30
-      delay: 10
-      until: jenkins_status.status == 200
-
     - name: Output initial Jenkins password
       command: cat /srv/jenkins_home/secrets/initialAdminPassword
       register: initial_password
+      ignore_errors: yes  # Ігнорувати помилки, якщо файл не знайдено
 
     - name: Show initial Jenkins password
       debug:
         msg: "Initial Jenkins password: {{ initial_password.stdout }}"
+
+    - name: Check if Jenkins is running
+      uri:
+        url: "http://192.168.0.100:8080"
+        method: GET
+        status_code: 200
+        user: "admin"
+        password: "{{ initial_password.stdout }}"
+        force_basic_auth: yes
+      register: jenkins_status
+      retries: 60  
+      delay: 20  
+      until: jenkins_status.status == 200
