@@ -1,23 +1,56 @@
 ---
-- name: Install Apache2
+- name: Install and configure Apache with reverse proxy for Docker container
   hosts: all
   become: yes
 
   tasks:
-    - name: Update apt cache
-      apt:
-        update_cache: yes
-      become: yes
-
-    - name: Install Apache2 package
+    - name: Ensure Apache is installed
       apt:
         name: apache2
         state: present
-      become: yes
+      when: ansible_os_family == "Debian"
 
-    - name: Start Apache2 service
+    - name: Ensure Apache is installed (for RedHat based systems)
+      yum:
+        name: httpd
+        state: present
+      when: ansible_os_family == "RedHat"
+
+    - name: Enable and start Apache service
       service:
-        name: apache2
+        name: "{{ 'apache2' if ansible_os_family == 'Debian' else 'httpd' }}"
         state: started
         enabled: yes
-      become: yes
+
+    - name: Enable necessary Apache modules
+      apache2_module:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - proxy
+        - proxy_http
+      when: ansible_os_family == "Debian"
+
+    - name: Enable necessary Apache modules (for RedHat based systems)
+      command: "{{ item }}"
+      loop:
+        - "sudo dnf install -y mod_proxy"
+        - "sudo dnf install -y mod_proxy_http"
+      when: ansible_os_family == "RedHat"
+
+    - name: Configure Apache virtual host for reverse proxy
+      template:
+        src: apache_vhost.j2
+        dest: /etc/apache2/sites-available/000-default.conf
+      when: ansible_os_family == "Debian"
+
+    - name: Configure Apache virtual host for reverse proxy (RedHat)
+      template:
+        src: apache_vhost.j2
+        dest: /etc/httpd/conf.d/000-default.conf
+      when: ansible_os_family == "RedHat"
+
+    - name: Reload Apache to apply changes
+      service:
+        name: "{{ 'apache2' if ansible_os_family == 'Debian' else 'httpd' }}"
+        state: reloaded
