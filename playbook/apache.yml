@@ -4,6 +4,18 @@
   become: yes
 
   tasks:
+    - name: Remove old Apache installation (Debian)
+      apt:
+        name: apache2
+        state: absent
+      when: ansible_os_family == "Debian"
+
+    - name: Remove old Apache installation (RedHat)
+      yum:
+        name: httpd
+        state: absent
+      when: ansible_os_family == "RedHat"
+
     - name: Ensure Apache is installed
       apt:
         name: apache2
