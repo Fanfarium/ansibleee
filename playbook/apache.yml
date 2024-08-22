@@ -4,18 +4,6 @@
   become: yes
 
   tasks:
-    - name: Remove old Apache installation (Debian)
-      apt:
-        name: apache2
-        state: absent
-      when: ansible_os_family == "Debian"
-
-    - name: Remove old Apache installation (RedHat)
-      yum:
-        name: httpd
-        state: absent
-      when: ansible_os_family == "RedHat"
-
     - name: Ensure Apache is installed
       apt:
         name: apache2
@@ -41,6 +29,7 @@
       loop:
         - proxy
         - proxy_http
+        - proxy_wstunnel
       when: ansible_os_family == "Debian"
 
     - name: Enable necessary Apache modules (for RedHat based systems)
@@ -48,6 +37,7 @@
       loop:
         - "sudo dnf install -y mod_proxy"
         - "sudo dnf install -y mod_proxy_http"
+        - "sudo dnf install -y mod_proxy_wstunnel"
       when: ansible_os_family == "RedHat"
 
     - name: Configure Apache virtual host for reverse proxy
@@ -62,7 +52,22 @@
         dest: /etc/httpd/conf.d/000-default.conf
       when: ansible_os_family == "RedHat"
 
+    - name: Ensure ServerName is set in Apache main configuration file
+      lineinfile:
+        path: "{{ '/etc/apache2/apache2.conf' if ansible_os_family == 'Debian' else '/etc/httpd/conf/httpd.conf' }}"
+        line: "ServerName 192.168.0.100"
+        create: yes
+        state: present
+        insertafter: "LogLevel warn"
+      notify: Reload Apache
+
     - name: Reload Apache to apply changes
+      service:
+        name: "{{ 'apache2' if ansible_os_family == 'Debian' else 'httpd' }}"
+        state: reloaded
+
+  handlers:
+    - name: Reload Apache
       service:
         name: "{{ 'apache2' if ansible_os_family == 'Debian' else 'httpd' }}"
         state: reloaded
