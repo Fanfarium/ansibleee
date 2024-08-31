@@ -28,18 +28,20 @@
       apt_repository:
         repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_lsb.codename }} stable"
         state: present
+      ignore_errors: yes
 
-    - name: Add Jenkins GPG key
-      command: apt-key adv --keyserver keyserver.ubuntu.com --recv-keys FCEF32E745F2C3D5
+    - name: Add Jenkins GPG key manually
+      shell: |
+        curl -fsSL https://pkg.jenkins.io/debian/jenkins.io.key | apt-key add -
 
-    - name: Add Jenkins repository
-      apt_repository:
-        repo: "deb [arch=amd64] https://pkg.jenkins.io/debian-stable binary/"
-        state: present
+    - name: Add Jenkins repository manually
+      shell: |
+        echo "deb [arch=amd64] https://pkg.jenkins.io/debian-stable binary/" > /etc/apt/sources.list.d/jenkins.list
 
     - name: Update apt cache
       apt:
         update_cache: yes
+        cache_valid_time: 3600
 
     - name: Install required packages for Docker installation
       apt:
