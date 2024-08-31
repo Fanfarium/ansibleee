@@ -1,6 +1,6 @@
 ---
 - name: Install Docker and Jenkins in a Docker container
-  hosts: webservers
+  hosts: master
   become: yes
   collections:
     - community.docker
@@ -111,6 +111,9 @@
       debug:
         msg: "Initial Jenkins password: {{ initial_password.stdout }}"
 
+    - name: Remove existing SSH key in Jenkins container
+      command: docker exec jenkins rm -f /var/jenkins_home/.ssh/id_ed25519 /var/jenkins_home/.ssh/id_ed25519.pub
+
     - name: Generate SSH key inside Jenkins Docker container
       command: docker exec jenkins bash -c 'mkdir -p /var/jenkins_home/.ssh/ && ssh-keygen -t ed25519 -f /var/jenkins_home/.ssh/id_ed25519 -C "artemlukianyk2005@gmail.com" -q -N ""'
       become: yes
@@ -119,7 +122,7 @@
       command: docker exec jenkins cat /var/jenkins_home/.ssh/id_ed25519.pub
       register: jenkins_ssh_pub_key
 
-    - name: Display Jenkins SSH private key (**WARNING: Do not share this**)
+    - name: Display Jenkins SSH private key
       command: docker exec jenkins cat /var/jenkins_home/.ssh/id_ed25519
       register: jenkins_ssh_priv_key
 
@@ -146,6 +149,6 @@
         password: "{{ initial_password.stdout }}"
         force_basic_auth: yes
       register: jenkins_status
-      retries: 60  
-      delay: 20  
+      retries: 60
+      delay: 20
       until: jenkins_status.status == 200
