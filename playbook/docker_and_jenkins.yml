@@ -8,35 +8,68 @@
   tasks:
     - name: Remove old Docker packages
       apt:
-        name: "{{ item }}"
+        name:
+          - docker.io
+          - docker-doc
+          - docker-compose
+          - docker-compose-v2
+          - podman-docker
+          - containerd
+          - runc
         state: absent
-      with_items:
-        - docker.io
-        - docker-doc
-        - docker-compose
-        - docker-compose-v2
-        - podman-docker
-        - containerd
-        - runc
+
+    - name: Find all repository files
+      find:
+        paths: /etc/apt/sources.list.d/
+        recurse: yes
+        file_type: file
+      register: repo_files
+
+    - name: Remove all repository files
+      file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ repo_files.files }}"
+
+    - name: Find all APT GPG keys
+      find:
+        paths: /usr/share/keyrings/
+        recurse: yes
+        file_type: file
+      register: gpg_keys
+
+    - name: Remove all APT GPG keys
+      file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ gpg_keys.files }}"
+
+    - name: Create directory for APT keyrings if it doesn't exist
+      file:
+        path: /etc/apt/trusted.gpg.d
+        state: directory
 
     - name: Add Docker GPG key
       apt_key:
         url: https://download.docker.com/linux/ubuntu/gpg
         state: present
+        keyring: /etc/apt/trusted.gpg.d/docker.gpg
 
     - name: Add Docker repository
       apt_repository:
         repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_lsb.codename }} stable"
         state: present
-      ignore_errors: yes
 
-    - name: Add Jenkins GPG key manually
-      shell: |
-        curl -fsSL https://pkg.jenkins.io/debian/jenkins.io.key | apt-key add -
+    - name: Add Jenkins GPG key
+      apt_key:
+        url: https://pkg.jenkins.io/debian/jenkins.io.key
+        state: present
+        keyring: /etc/apt/trusted.gpg.d/jenkins.gpg
 
-    - name: Add Jenkins repository manually
-      shell: |
-        echo "deb [arch=amd64] https://pkg.jenkins.io/debian-stable binary/" > /etc/apt/sources.list.d/jenkins.list
+    - name: Add Jenkins repository
+      apt_repository:
+        repo: "deb [arch=amd64] https://pkg.jenkins.io/debian-stable binary/"
+        filename: jenkins
 
     - name: Update apt cache
       apt:
@@ -144,7 +177,7 @@
 
     - name: Check if Jenkins is running
       uri:
-        url: "http://192.168.0.100:8080"
+        url: "http://192.168.0.195:8080"
         method: GET
         status_code: 200
         user: "admin"
