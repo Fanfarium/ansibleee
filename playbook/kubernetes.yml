@@ -1,34 +1,107 @@
 ---
-- hosts: all
+- name: Install and Configure Kubernetes
+  hosts: master
   become: yes
   tasks:
-    - name: Ensure old k3s installation is removed
-      shell: /usr/local/bin/k3s-uninstall.sh || true
+
+    - name: Clean up occupied ports
+      shell: "fuser -k 6443/tcp || true"
+      ignore_errors: true
+
+    - name: Disable swap
+      ansible.builtin.command: swapoff -a
+      when: ansible_swaptotal_mb > 0
+      ignore_errors: true
+
+    - name: Load necessary kernel modules
+      ansible.builtin.modprobe:
+        name: "{{ item }}"
+      loop:
+        - overlay
+        - br_netfilter
+
+    - name: Set sysctl parameters for Kubernetes
+      ansible.builtin.sysctl:
+        name: "{{ item.name }}"
+        value: "{{ item.value }}"
+        state: present
+      loop:
+        - { name: 'net.bridge.bridge-nf-call-iptables', value: 1 }
+        - { name: 'net.bridge.bridge-nf-call-ip6tables', value: 1 }
+        - { name: 'net.ipv4.ip_forward', value: 1 }
+
+    - name: Check if port 6443 is occupied
+      shell: "lsof -i :6443 || true"
+      ignore_errors: true
+
+    - name: Clean up old Kubernetes configurations
+      shell: "kubeadm reset -f || true && sudo rm -rf /etc/cni/net.d"
+      ignore_errors: true
+
+    - name: Initialize Kubernetes cluster
+      shell: |
+        echo "Ініціалізація Kubernetes кластера..."
+        kubeadm init --pod-network-cidr=10.244.0.0/16
+      register: kubeadm_init
       ignore_errors: yes
 
-    - name: Download and install k3s
-      shell: curl -sfL https://get.k3s.io | sh -s - --write-kubeconfig-mode 644
-      register: k3s_install
+    - name: Create directory for kube config
+      ansible.builtin.file:
+        path: /root/.kube
+        state: directory
+        mode: '0755'
+      when: kubeadm_init.changed
 
-    - name: Verify if k3s is installed as a server
-      stat:
-        path: /var/lib/rancher/k3s/server/node-token
-      register: server_token_exists
+    - name: Copy kube config
+      ansible.builtin.copy:
+        src: /etc/kubernetes/admin.conf
+        dest: /root/.kube/config
+        owner: root
+        group: root
+        mode: '0644'
+      when: kubeadm_init.changed
 
-    - name: Get the server node token
-      shell: "cat /var/lib/rancher/k3s/server/node-token"
-      register: server_node_token
-      when: server_token_exists.stat.exists
-      changed_when: false
+    - name: Install required packages
+      ansible.builtin.apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+        state: present
+        update_cache: yes
 
-    - name: Save server node token for worker nodes
-      copy:
-        content: "{{ server_node_token.stdout }}"
-        dest: /tmp/server_node_token.txt
-      when: server_token_exists.stat.exists
+    - name: Download Kubernetes APT repository key
+      ansible.builtin.get_url:
+        url: https://pkgs.k8s.io/core:/stable:/v1.28/deb/Release.key
+        dest: /tmp/kubernetes-release.key
+        mode: '0644'
 
-    - name: Display the server node token
-      debug:
-        msg: "K3s Server Node Token: {{ server_node_token.stdout }}"
-      when: server_token_exists.stat.exists
+    - name: Add Kubernetes APT repository key
+      ansible.builtin.command: >
+        sudo gpg --batch --yes --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg /tmp/kubernetes-release.key
+      args:
+        creates: /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+
+    - name: Add Kubernetes APT repository
+      ansible.builtin.apt_repository:
+        repo: "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.28/deb/ /"
+        state: present
+
+    - name: Install Kubernetes components
+      ansible.builtin.apt:
+        name:
+          - kubelet
+          - kubeadm
+          - kubectl
+        state: present
+        update_cache: yes
+
+    - name: Hold Kubernetes packages
+      ansible.builtin.command: >
+        sudo apt-mark hold kubelet kubeadm kubectl
+
+    - name: Deploy Flannel network plugin
+      ansible.builtin.command:
+        cmd: kubectl apply -f https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml
+        creates: /etc/kubernetes/manifests/kube-flannel.yaml
 
