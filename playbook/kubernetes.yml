@@ -1,4 +1,3 @@
----
 - name: Configure and Initialize Kubernetes Cluster
   hosts: all
   become: yes
@@ -169,3 +168,42 @@
         msg: "Join command for worker nodes: {{ lookup('file', '/tmp/join-command.sh') }}"
       tags:
         - deploy
+
+    - name: Create directory for kube-proxy
+      file:
+        path: /var/lib/kube-proxy
+        state: directory
+        mode: '0755'
+      tags:
+        - kube-proxy
+
+    - name: Set ownership for kube-proxy directory
+      file:
+        path: /var/lib/kube-proxy
+        state: directory
+        owner: '65534'
+        group: '65534'
+      tags:
+        - kube-proxy
+
+    - name: Create kube-proxy config file
+      copy:
+        dest: /var/lib/kube-proxy/config.conf
+        content: |
+          apiVersion: kubeproxy.config.k8s.io/v1alpha1
+          kind: KubeProxyConfiguration
+          clientConnection:
+            kubeconfig: /var/lib/kube-proxy/kubeconfig
+          mode: "iptables"
+          clusterCIDR: "10.244.0.0/16"
+        owner: '65534'
+        group: '65534'
+        mode: '0644'
+      tags:
+        - kube-proxy
+
+    - name: Delete old kube-proxy pod
+      shell: |
+        kubectl delete pod -n kube-system -l k8s-app=kube-proxy
+      tags:
+        - kube-proxy
