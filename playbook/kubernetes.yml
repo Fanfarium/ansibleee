@@ -1,96 +1,87 @@
-- name: Configure and Initialize Kubernetes Cluster
-  hosts: all
+---
+- name: Kubernetes Master Node Setup
+  hosts: master1
   become: yes
   tasks:
-    - name: Clean ports and stop Kubernetes services
-      shell: |
-        PORT=6443
-        echo "Перевірка наявності зайнятих портів $PORT..."
-        sudo lsof -i :$PORT
-        echo "Зупинка служб Kubernetes..."
-        sudo systemctl stop kubelet kube-apiserver kube-scheduler kube-controller-manager kube-proxy
-        echo "Очистка залишкових процесів..."
-        PIDS=$(sudo lsof -t -i :$PORT)
-        if [ -n "$PIDS" ]; then
-            echo "Зупинка процесів з PIDs: $PIDS"
-            sudo kill -9 $PIDS
-        else
-            echo "Процеси на порту $PORT не знайдено."
-        fi
-        echo "Перевірка наявності зайнятих портів після очищення..."
-        sudo lsof -i :$PORT
-        if sudo lsof -i :$PORT > /dev/null; then
-            echo "Порт $PORT все ще зайнятий. Перезавантаження системи..."
-            sudo reboot
-        else
-            echo "Порт $PORT звільнений."
-        fi
-      tags:
-        - init
+    - name: Stop Kubernetes services
+      ansible.builtin.shell: |
+        systemctl stop kubelet || true
+        systemctl stop kube-apiserver.service || true
+        systemctl stop kube-controller-manager.service || true
+        systemctl stop kube-scheduler.service || true
+        systemctl stop etcd.service || true
+      ignore_errors: yes
 
-    - name: Disable swap and configure kernel modules
-      shell: |
-        sudo swapoff -a
-        cat <<EOF | sudo tee /etc/modules-load.d/k8s.conf
+    - name: Remove Kubernetes manifest files
+      ansible.builtin.shell: |
+        rm /etc/kubernetes/manifests/kube-apiserver.yaml || true
+        rm /etc/kubernetes/manifests/kube-controller-manager.yaml || true
+        rm /etc/kubernetes/manifests/kube-scheduler.yaml || true
+        rm /etc/kubernetes/manifests/etcd.yaml || true
+        rm -rf /var/lib/etcd || true
+
+    - name: Reset kubeadm
+      ansible.builtin.shell: kubeadm reset -f
+
+    - name: Set hostname for the Kubernetes master node
+      ansible.builtin.shell: hostnamectl set-hostname "k8s-master-noble"
+
+    - name: Disable swap
+      ansible.builtin.shell: |
+        swapoff -a
+        sed -i '/ swap / s/^\(.*\)$/#\1/g' /etc/fstab
+
+    - name: Load necessary kernel modules
+      ansible.builtin.shell: |
+        modprobe overlay
+        modprobe br_netfilter
+
+    - name: Configure modules to load at boot
+      ansible.builtin.shell: |
+        tee /etc/modules-load.d/k8s.conf <<EOF
         overlay
         br_netfilter
         EOF
-        sudo modprobe overlay
-        sudo modprobe br_netfilter
-        cat <<EOF | sudo tee /etc/sysctl.d/k8s.conf
-        net.bridge.bridge-nf-call-iptables  = 1
+
+    - name: Configure sysctl settings for Kubernetes
+      ansible.builtin.shell: |
+        tee /etc/sysctl.d/kubernetes.conf <<EOT
         net.bridge.bridge-nf-call-ip6tables = 1
-        net.ipv4.ip_forward                 = 1
-        EOF
-        sudo sysctl --system
-        echo "Перевірка наявності зайнятих портів 6443..."
-        if sudo lsof -i :6443 > /dev/null; then
-            echo "Порт 6443 зайнятий. Зупиніть процес або звільніть порт перед продовженням."
-            exit 1
-        fi
-      tags:
-        - config
+        net.bridge.bridge-nf-call-iptables = 1
+        net.ipv4.ip_forward = 1
+        EOT
+      notify: Apply sysctl settings
 
-    - name: Clean old Kubernetes configurations
-      shell: |
-        if [ -d /etc/kubernetes ]; then
-            echo "Старі конфігурації Kubernetes знайдено. Очищення..."
-            sudo kubeadm reset -f
-            sudo rm -rf /etc/kubernetes
-            sudo rm -rf /var/lib/etcd
-            sudo rm -rf ~/.kube
-        fi
-      tags:
-        - cleanup
+    - name: Install containerd
+      ansible.builtin.shell: |
+        apt update && apt install containerd.io -y
+        containerd config default | tee /etc/containerd/config.toml >/dev/null 2>&1
+        sed -i 's/SystemdCgroup \= false/SystemdCgroup \= true/g' /etc/containerd/config.toml
+        systemctl restart containerd
 
-    - name: Create keyrings directory
-      file:
-        path: /etc/apt/keyrings
-        state: directory
-        mode: '0755'
-      tags:
-        - install
+    - name: Remove all Kubernetes APT sources
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/apt/sources.list.d/kubernetes.list
+        - /etc/apt/sources.list.d/kubernetes*
 
-    - name: Update package index
-      apt:
-        update_cache: yes
-      tags:
-        - install
 
-    - name: Install essential packages
-      apt:
-        name:
-          - apt-transport-https
-          - ca-certificates
-          - curl
-          - gpg
-        state: present
-      tags:
-        - install
+    - name: Remove old Kubernetes APT key
+      ansible.builtin.file:
+        path: /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+        state: absent
+
+    - name: Remove old Kubernetes APT repository
+      ansible.builtin.apt_repository:
+        repo: "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.28/deb/ /"
+        state: absent
+
 
     - name: Download Kubernetes APT repository key
       get_url:
-        url: https://pkgs.k8s.io/core:/stable:/v1.28/deb/Release.key
+        url: https://pkgs.k8s.io/core:/stable:/v1.30/deb/Release.key
         dest: /tmp/kubernetes-release.key
         mode: '0644'
 
@@ -102,7 +93,7 @@
 
     - name: Add Kubernetes APT repository
       apt_repository:
-        repo: "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.28/deb/ /"
+        repo: "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.30/deb/ /"
         state: present
 
     - name: Update package index again
@@ -111,99 +102,44 @@
       tags:
         - install
 
-    - name: Install Kubernetes components and containerd
-      apt:
-        name:
-          - kubelet
-          - kubeadm
-          - kubectl
-          - containerd
-        state: present
-        force: yes
+    - name: Update package index
+      ansible.builtin.apt:
+        update_cache: yes
       tags:
         - install
 
-    - name: Configure containerd
-      shell: |
-        echo "Налаштування containerd..."
-        CONFIG_FILE="/etc/containerd/config.toml"
-        if sudo grep -q '^disabled_plugins = \["cri"\]' "$CONFIG_FILE"; then
-            sudo sed -i '/^disabled_plugins = \["cri"\]/c\# Disable the CRI plugin if not needed\ndisabled_plugins = []' "$CONFIG_FILE"
-            echo "Оновлено конфігурацію containerd."
-        else
-            echo "Конфігурація containerd вже оновлена або параметр не знайдено."
-        fi
-        sudo systemctl restart containerd
-      tags:
-        - containerd
 
-    - name: Initialize Kubernetes cluster
-      shell: |
-        echo "Ініціалізація Kubernetes кластера..."
-        sudo kubeadm init --pod-network-cidr=10.244.0.0/16
-        mkdir -p $HOME/.kube
-        sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
-        sudo chown $(id -u):$(id -g) $HOME/.kube/config
-        echo "Інсталяція та конфігурація Kubernetes завершена."
-        echo "Збереження команди для приєднання воркерів..."
-        sudo kubeadm token create --print-join-command > /tmp/join-command.sh
-        sudo chmod +x /tmp/join-command.sh
-        cat /tmp/join-command.sh
-      tags:
-        - init
+    - name: Install Kubernetes components
+      ansible.builtin.shell: apt install kubelet kubeadm kubectl -y
 
-    - name: Deploy Flannel network plugin
-      shell: |
-        echo "Розгортання мережевого плагіна Flannel..."
-        kubectl apply -f https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml
-        echo "Перевірка статусу кластеру..."
-        kubectl get nodes
-        kubectl get pods --all-namespaces
-      register: flannel_result
-      tags:
-        - deploy
+    - name: Initialize Kubernetes master node
+      ansible.builtin.shell: kubeadm init --control-plane-endpoint=k8s-master-noble
 
-    - name: Show join command for worker nodes
-      debug:
-        msg: "Join command for worker nodes: {{ lookup('file', '/tmp/join-command.sh') }}"
-      tags:
-        - deploy
+    - name: Configure kubectl for the user
+      block:
+        - name: Ensure .kube directory exists
+          ansible.builtin.file:
+            path: "{{ ansible_env.HOME }}/.kube"
+            state: directory
+            mode: '0755'
 
-    - name: Create directory for kube-proxy
-      file:
-        path: /var/lib/kube-proxy
-        state: directory
-        mode: '0755'
-      tags:
-        - kube-proxy
+        - name: Copy Kubernetes admin config to user's kube directory
+          ansible.builtin.copy:
+            src: /etc/kubernetes/admin.conf
+            dest: "{{ ansible_env.HOME }}/.kube/config"
+            owner: "{{ ansible_user_id }}"
+            group: "{{ ansible_user_id }}"
+            mode: '0644'
 
-    - name: Set ownership for kube-proxy directory
-      file:
-        path: /var/lib/kube-proxy
-        state: directory
-        owner: '65534'
-        group: '65534'
-      tags:
-        - kube-proxy
+    - name: Install Flannel network plugin
+      ansible.builtin.shell: kubectl apply -f https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml
 
-    - name: Create kube-proxy config file
-      copy:
-        dest: /var/lib/kube-proxy/config.conf
-        content: |
-          apiVersion: kubeproxy.config.k8s.io/v1alpha1
-          kind: KubeProxyConfiguration
-          clientConnection:
-            kubeconfig: /var/lib/kube-proxy/kubeconfig
-          mode: "iptables"
-          clusterCIDR: "10.244.0.0/16"
-        owner: '65534'
-        group: '65534'
-        mode: '0644'
-      tags:
-        - kube-proxy
+    - name: Check Kubernetes nodes
+      ansible.builtin.shell: kubectl get nodes
 
-    - name: Delete old kube-proxy pod
-      shell: |
-        kubectl delete pod -n kube-system -l k8s-app=kube-proxy
-      tags:
-        - kube-proxy
+    - name: Check Kubernetes pods in kube-system namespace
+      ansible.builtin.shell: kubectl get pods -n kube-system
+
+  handlers:
+    - name: Apply sysctl settings
+      ansible.builtin.shell: sysctl --system
