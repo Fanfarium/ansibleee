@@ -1,3 +1,15 @@
+sudo systemctl stop kubelet
+sudo systemctl stop kube-apiserver
+sudo systemctl stop kube-controller-manager
+sudo systemctl stop kube-scheduler
+sudo systemctl stop etcd
+sudo rm /etc/kubernetes/manifests/kube-apiserver.yaml
+sudo rm /etc/kubernetes/manifests/kube-controller-manager.yaml
+sudo rm /etc/kubernetes/manifests/kube-scheduler.yaml
+sudo rm /etc/kubernetes/manifests/etcd.yaml
+sudo rm -rf /var/lib/etcd
+sudo kubeadm reset
+
 sudo hostnamectl set-hostname "k8s-master-noble"
 sudo swapoff -a
 sudo sed -i '/ swap / s/^\(.*\)$/#\1/g' /etc/fstab
@@ -32,6 +44,7 @@ mkdir -p $HOME/.kube
 sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
 sudo chown $(id -u):$(id -g) $HOME/.kube/config
 
+kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.28.0/manifests/tigera-operator.yaml
 kubectl get nodes
 kubectl get pods -n kube-system
 
