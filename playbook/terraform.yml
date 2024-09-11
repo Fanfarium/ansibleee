@@ -16,12 +16,6 @@
         state: present
       when: ansible_os_family == "Debian"
 
-    - name: Ensure unzip is installed
-      yum:
-        name: unzip
-        state: present
-      when: ansible_os_family == "RedHat"
-
     - name: Download Terraform
       get_url:
         url: "{{ terraform_url }}"
