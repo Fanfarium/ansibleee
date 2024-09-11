@@ -22,6 +22,7 @@
 
     - name: Reset kubeadm
       ansible.builtin.shell: kubeadm reset -f
+      ignore_errors: yes
 
     - name: Set hostname for the Kubernetes master node
       ansible.builtin.shell: hostnamectl set-hostname "k8s-master-noble"
