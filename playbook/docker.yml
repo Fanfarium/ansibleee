@@ -3,7 +3,7 @@
   hosts: all
   become: true
   tasks:
-    - name: Remove old Docker packages
+    - name: Remove old Docker packages and Docker Compose
       apt:
         name: "{{ item }}"
         state: absent
@@ -15,6 +15,12 @@
         - podman-docker
         - containerd
         - runc
+        - docker-compose-plugin  # Додаємо для видалення старого плагіну Docker Compose
+
+    - name: Remove old Docker Compose binary
+      file:
+        path: /usr/local/bin/docker-compose
+        state: absent
 
     - name: Update APT repository
       apt:
@@ -59,3 +65,15 @@
           - docker-buildx-plugin
           - docker-compose-plugin
         state: present
+
+    - name: Download Docker Compose binary
+      get_url:
+        url: "https://github.com/docker/compose/releases/download/1.29.2/docker-compose-{{ ansible_system }}-{{ ansible_architecture }}"
+        dest: /usr/local/bin/docker-compose
+        mode: '0755'
+
+    - name: Ensure Docker Compose is executable
+      file:
+        path: /usr/local/bin/docker-compose
+        mode: '0755'
+        state: file
