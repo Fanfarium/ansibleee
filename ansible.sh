@@ -10,8 +10,7 @@ ansible-playbook -i ../inventory.ini docker.yml --ask-pass --ask-become-pass
 ansible-playbook -i ../inventory.ini jenkins.yml --ask-pass --ask-become-pass
 ansible-playbook -i ../inventory.ini kubernetes.yml --ask-pass --ask-become-pass
 ansible-playbook -i ../inventory.ini terraform.yml --ask-pass --ask-become-pass
-kubectl rollout restart daemonset kube-proxy -n kube-system
-kubectl get pods -n kube-system
+
 
 
 
