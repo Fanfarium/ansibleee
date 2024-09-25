@@ -15,7 +15,7 @@
         - podman-docker
         - containerd
         - runc
-        - docker-compose-plugin  # Додаємо для видалення старого плагіну Docker Compose
+        - docker-compose-plugin
 
     - name: Remove old Docker Compose binary
       file:
